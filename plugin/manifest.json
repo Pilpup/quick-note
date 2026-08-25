@@ -1,0 +1,10 @@
+{
+    "schemaVersion": 1,
+    "id": "my.quicknote",
+    "name": "Quick Note",
+    "version": "0.1",
+    "kinds": ["bar-widget"],
+    "entryPoints": {
+        "barWidget": "BarWidget.qml"
+    }
+}
