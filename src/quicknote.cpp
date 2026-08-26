@@ -56,3 +56,23 @@ void QuickNote::SaveNote(){
         file.write(m_buffers[m_currentBufferIndex].toUtf8());
     }
 }
+
+QString QuickNote::GetBufferTextAt(int index) const {
+    if(index >= 0 && index < MAX_BUFFERS){
+        return m_buffers[index];
+    }
+    return QString();
+}
+
+void QuickNote::SetBufferTextAt(int index, const QString &newText){
+    if(index >= 0 && index < MAX_BUFFERS){
+        if(m_buffers[index] != newText){
+            m_buffers[index] = newText;
+            m_saveTimer.start(500);
+
+            if (index == m_currentBufferIndex) {
+                emit NoteTextChanged();
+            }
+        }
+    }
+}

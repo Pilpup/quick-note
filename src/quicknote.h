@@ -20,7 +20,10 @@ public:
     QString NoteText() const;
     int BufferIndex() const;
     void SetNoteText(const QString &newText);
+
     Q_INVOKABLE QString GetNoteText() const { return m_buffers[m_currentBufferIndex]; }
+    Q_INVOKABLE QString GetBufferTextAt(int index) const;
+    Q_INVOKABLE void SetBufferTextAt(int index, const QString &newText);
 
 signals:
     void NoteTextChanged();
