@@ -50,6 +50,25 @@ BarWidget{
             }
         }
 
+        Row{
+            anchors.top: parent.top
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.topMargin: -8
+
+            spacing: 4
+            z: 10
+
+            Repeater{
+                model: 7
+                Rectangle{
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: QuickNote.BufferIndex === index ? Color.accent : Color.muted
+                }
+            }
+        }
+
         ScrollView{
             anchors.fill: parent
             clip: true
@@ -57,6 +76,7 @@ BarWidget{
             TextArea{
                 id: noteInput
                 padding: 0
+                topPadding: 8
                 wrapMode: Text.Wrap
 
                 placeholderText: "Hello..."
@@ -80,6 +100,10 @@ BarWidget{
                 Shortcut {
                     sequence: StandardKey.ZoomOut
                     onActivated: noteInput.font.pixelSize = Math.max(8, noteInput.font.pixelSize - 1)
+                }
+                Shortcut{
+                    sequence: "Ctrl+B"
+                    onActivated: { QuickNote.NextBuffer(); noteInput.text = QuickNote.GetNoteText(); }
                 }
                 Shortcut {
                     sequence: "Ctrl+R"
