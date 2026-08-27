@@ -2,9 +2,11 @@
     "schemaVersion": 1,
     "id": "my.quicknote",
     "name": "Quick Note",
-    "version": "1.0",
+    "version": "1.0.0",
+    "author": "Pilpup",
+    "description": "A lightning-fast, multi-tab scratchpad and sticky note plugin.",
     "kinds": ["bar-widget"],
     "entryPoints": {
-        "barWidget": "BarWidget.qml"
+        "barWidget": "plugin/BarWidget.qml"
     }
 }
