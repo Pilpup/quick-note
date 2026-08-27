@@ -16,6 +16,7 @@ BarWidget{
 
     property var activeStickyNote: ({})
     property int sharedFontSize: Style.font.body
+    property var tabColors: ["#FF003C", "#00FF66", "#0088FF", "#FFDD00", "#D900FF", "#FF6600", "#00FFFF"]
 
     function close(){
         popup.open = false
@@ -64,7 +65,7 @@ BarWidget{
             z: 10
 
             Repeater{
-                model: 7
+                model: QuickNote.MaxBuffers
                 Rectangle{
                     width: 8
                     height: 8
@@ -93,16 +94,27 @@ BarWidget{
 
             title: "QuickNote Pinned"
 
-            minimumSize: Qt.size(300, 300)
-            maximumSize: Qt.size(300, 300)
+            property int dynamicHeight: {
+                if(stickyLoader.item){
+                    return Math.min(800, Math.max(300, stickyLoader.item.noteHeight + 24))
+                }
+                return 300
+            }
 
-            BorderSurface{
+            minimumSize: Qt.size(300, dynamicHeight)
+            maximumSize: Qt.size(300, dynamicHeight)
+            width: 300
+            height: dynamicHeight
+
+            Rectangle {
                 anchors.fill: parent
                 color: Color.popups.background
-                borderSpec: Border.flat(Color.accent, 2)
+                border.color: root.tabColors[bufferIndex % root.tabColors.length]
+                border.width: 2
                 radius: Style.cornerRadius
 
                 Loader{
+                    id: stickyLoader
                     anchors.fill: parent
                     anchors.margins: 12
                     sourceComponent: noteEditor
@@ -123,8 +135,14 @@ BarWidget{
             property real noteHeight: noteInput.implicitHeight
             property int tabIndex: QuickNote.BufferIndex
             property bool isSticky: false
-            
             property int localFontSize: Style.font.body
+            property bool isPanelOpen: root.opened
+
+            onIsPanelOpenChanged: {
+                if (isPanelOpen && !isSticky) {
+                    noteInput.text = QuickNote.GetBufferTextAt(tabIndex)
+                }
+            }
 
             TextArea{
                 id: noteInput
@@ -142,11 +160,69 @@ BarWidget{
 
                 background: Item {}
 
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    acceptedButtons: Qt.NoButton
+                    cursorShape: {
+                        let pos = noteInput.positionAt(mouseX, mouseY)
+                        let txt = noteInput.text
+                        let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
+                        let lineEnd = txt.indexOf('\n', pos)
+                        if(lineEnd === -1){
+                            lineEnd = txt.length
+                        }
+                        let line = txt.substring(lineStart, lineEnd)
+                        let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
+                        if(match){
+                            let boxStart = lineStart + match[1].length
+                            let boxEnd = boxStart + 3
+                            if(pos >= boxStart && pos <= boxEnd){
+                                return Qt.PointingHandCursor
+                            }
+                        }
+                        return Qt.IBeamCursor
+                    }
+                }
+
+                TapHandler {
+                    onTapped: function(eventPoint){
+                        let pos = noteInput.positionAt(eventPoint.position.x, eventPoint.position.y)
+                        let txt = noteInput.text
+                        let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
+                        let lineEnd = txt.indexOf('\n', pos)
+                        if(lineEnd === -1){
+                            lineEnd = txt.length
+                        }
+                        let line = txt.substring(lineStart, lineEnd)
+                        let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
+                        if(match){
+                            let boxStart = lineStart + match[1].length
+                            let boxEnd = boxStart + 3
+                            if(pos >= boxStart && pos <= boxEnd){
+                                let newChar = (match[2] === ' ' ? 'x' : ' ')
+                                let newText = txt.substring(0, boxStart + 1) + newChar + txt.substring(boxStart + 2)
+                                noteInput.text = newText
+                                noteInput.cursorPosition = pos
+                            }
+                        }
+                    }
+                }
+
                 Component.onCompleted: {
                     localFontSize = root.sharedFontSize
                     noteInput.text = QuickNote.GetBufferTextAt(tabIndex)
                     if(tabIndex === QuickNote.BufferIndex){
                         noteInput.forceActiveFocus()
+                    }
+                }
+
+                onActiveFocusChanged: {
+                    if(activeFocus && !isSticky){
+                        let currentText = QuickNote.GetBufferTextAt(tabIndex)
+                        if(noteInput.text !== currentText){
+                            noteInput.text = currentText
+                        }
                     }
                 }
 
@@ -156,12 +232,16 @@ BarWidget{
                     }
                 }
 
-                Connections{
-                    target: QuickNote
-
-                    function onNoteTextChanged(){
-                        if(QuickNote.BufferIndex === tabIndex && !noteInput.activeFocus){
-                            noteInput.text = QuickNote.GetBufferTextAt(tabIndex)
+                DropArea {
+                    anchors.fill: parent
+                    onDropped: function(drop) {
+                        if(drop.hasUrls){
+                            let path = drop.urls[0].toString()
+                            if(path.startsWith("file://")){
+                                path = path.substring(7)
+                            }
+                            noteInput.insert(noteInput.cursorPosition, path)
+                            drop.accept()
                         }
                     }
                 }
@@ -170,14 +250,14 @@ BarWidget{
                     sequence: StandardKey.ZoomIn
                     onActivated: {
                         localFontSize = Math.min(32, localFontSize + 1)
-                        if (!isSticky) root.sharedFontSize = localFontSize
+                        if(!isSticky) root.sharedFontSize = localFontSize
                     }
                 }
                 Shortcut {
                     sequence: StandardKey.ZoomOut
                     onActivated: {
                         localFontSize = Math.max(8, localFontSize - 1)
-                        if (!isSticky) root.sharedFontSize = localFontSize
+                        if(!isSticky) root.sharedFontSize = localFontSize
                     }
                 }
                 Shortcut{
@@ -192,36 +272,65 @@ BarWidget{
                 Shortcut {
                     sequence: "Ctrl+P"
                     onActivated: {
-                        let idx = QuickNote.BufferIndex
-                        
-                        if(root.activeStickyNote[idx] && root.activeStickyNote[idx].visible){
-                            root.activeStickyNote[idx].destroy()
-                            root.activeStickyNote[idx] = null
-                        }else{
-                            if(root.activeStickyNote[idx]){
-                                root.activeStickyNote[idx].destroy()
+                        if(isSticky){
+                            if(root.activeStickyNote[tabIndex]){
+                                root.activeStickyNote[tabIndex].destroy()
+                                root.activeStickyNote[tabIndex] = null
                             }
-                            root.activeStickyNote[idx] = stickyFactory.createObject(root, { "bufferIndex": idx })
+                        }
+                        else{
+                            let idx = QuickNote.BufferIndex
+                            if(root.activeStickyNote[idx] && root.activeStickyNote[idx].visible){
+                                root.activeStickyNote[idx].destroy()
+                                root.activeStickyNote[idx] = null
+                            }
+                            else{
+                                if(root.activeStickyNote[idx]){
+                                    root.activeStickyNote[idx].destroy()
+                                }
+                                root.activeStickyNote[idx] = stickyFactory.createObject(root, { "bufferIndex": idx })
+                            }
+                        }
+                    }
+                }
+                Shortcut {
+                    sequence: "Ctrl+T"
+                    onActivated: {
+                        if(noteInput.selectedText.length > 0){
+                            QuickNote.RunStringInTerminal(noteInput.selectedText)
+                        }
+                        else{
+                            QuickNote.RunBufferInTerminal(tabIndex)
                         }
                     }
                 }
                 Shortcut {
                     sequence: "Ctrl+R"
-                    onActivated: noteInput.text = ""
-                }
-                Shortcut {
-                    sequence: "Escape"
                     onActivated: {
-                        if(tabIndex === QuickNote.BufferIndex){
-                            root.close()
+                        if(noteInput.selectedText.length > 0){
+                            noteInput.remove(noteInput.selectionStart, noteInput.selectionEnd)
                         }
-                        if(root.activeStickyNote[tabIndex]){
-                            root.activeStickyNote[tabIndex].destroy()
-                            root.activeStickyNote[tabIndex] = null
+                        else{
+                            noteInput.text = ""
                         }
                     }
                 }
+
+                Shortcut {
+                    sequence: "Escape"
+                    onActivated: {
+                        if(isSticky){
+                            if(root.activeStickyNote[tabIndex]){
+                                root.activeStickyNote[tabIndex].destroy()
+                                root.activeStickyNote[tabIndex] = null
+                            }
+                        }
+                        else{
+                            root.close()
+                        }
+                    }
             }
         }
     }
+}
 }

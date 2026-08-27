@@ -25,11 +25,7 @@ QString QuickNote::NoteText() const {return m_buffers[m_currentBufferIndex];}
 int QuickNote::BufferIndex() const {return m_currentBufferIndex;}
 
 void QuickNote::SetNoteText(const QString &noteText){
-    if(m_buffers[m_currentBufferIndex] == noteText) return;
-    m_buffers[m_currentBufferIndex] = noteText;
-
-    emit NoteTextChanged();
-    m_saveTimer.start();
+    SetBufferTextAt(m_currentBufferIndex, noteText);
 }
 
 void QuickNote::NextBuffer(){
@@ -50,10 +46,13 @@ void QuickNote::LoadNote(){
 }
 
 void QuickNote::SaveNote(){
-    QString path = m_directoryPath + QString("/note_%1.txt").arg(m_currentBufferIndex);
-    QFile file(path);
-    if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
-        file.write(m_buffers[m_currentBufferIndex].toUtf8());
+    QDir dir(m_directoryPath);
+    for(int i = 0; i < MAX_BUFFERS; i++){
+        QString path = dir.filePath("note_" + QString::number(i) + ".txt");
+        QFile file(path);
+        if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
+            file.write(m_buffers[i].toUtf8());
+        }
     }
 }
 
@@ -69,10 +68,43 @@ void QuickNote::SetBufferTextAt(int index, const QString &newText){
         if(m_buffers[index] != newText){
             m_buffers[index] = newText;
             m_saveTimer.start(500);
-
-            if (index == m_currentBufferIndex) {
-                emit NoteTextChanged();
-            }
         }
+    }
+}
+
+void QuickNote::RunBufferInTerminal(int index) const {
+    if(index >= 0 && index < MAX_BUFFERS){
+        QString text = m_buffers[index];
+        QString filePath = "/tmp/quicknote_run.sh";
+
+        QFile file(filePath);
+        if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
+            QTextStream out(&file);
+            out << text;
+            file.close();
+
+            file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+            QProcess::startDetached(
+                "xdg-terminal-exec", 
+                {"bash", "-c", filePath + "; echo ''; read -p 'Press Enter to close...' -r"}
+            );
+        }
+    }
+}
+
+void QuickNote::RunStringInTerminal(const QString &text) const {
+    QString filePath = "/tmp/quicknote_run.sh";
+
+    QFile file(filePath);
+    if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
+        QTextStream out(&file);
+        out << text;
+        file.close();
+
+        file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        QProcess::startDetached(
+            "xdg-terminal-exec", 
+            {"bash", "-c", filePath + "; echo ''; read -p 'Press Enter to close...' -r"}
+        );
     }
 }

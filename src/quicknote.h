@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QProcess>
 #include <QList>
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
@@ -13,17 +14,20 @@ class QuickNote : public QObject {
     QML_SINGLETON
     Q_PROPERTY(QString NoteText READ NoteText WRITE SetNoteText NOTIFY NoteTextChanged)
     Q_PROPERTY(int BufferIndex READ BufferIndex NOTIFY BufferIndexChanged)
+    Q_PROPERTY(int MaxBuffers READ MaxBuffers CONSTANT)
 
 public:
     explicit QuickNote(QObject* parent = nullptr);
 
     QString NoteText() const;
     int BufferIndex() const;
+    int MaxBuffers() const { return MAX_BUFFERS; }
     void SetNoteText(const QString &newText);
 
-    Q_INVOKABLE QString GetNoteText() const { return m_buffers[m_currentBufferIndex]; }
     Q_INVOKABLE QString GetBufferTextAt(int index) const;
     Q_INVOKABLE void SetBufferTextAt(int index, const QString &newText);
+    Q_INVOKABLE void RunBufferInTerminal(int index) const;
+    Q_INVOKABLE void RunStringInTerminal(const QString &text) const;
 
 signals:
     void NoteTextChanged();
