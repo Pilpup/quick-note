@@ -1,13 +1,18 @@
 #include "quicknote.h"
 #include <QFile>
+#include <QSaveFile>
+#include <QTemporaryFile>
 #include <QStandardPaths>
 #include <QDir>
+#include <QProcess>
 
 QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0){
     QString stateLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir dir(stateLocation);
     dir.mkpath("quicknote");
     m_directoryPath = dir.absoluteFilePath("quicknote");
+    
+    QFile::setPermissions(m_directoryPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
 
     for(int i = 0; i < MAX_BUFFERS; i++){
         m_buffers.append("");
@@ -42,9 +47,12 @@ void QuickNote::SaveNote(){
     QDir dir(m_directoryPath);
     for(int i = 0; i < MAX_BUFFERS; i++){
         QString path = dir.filePath("note_" + QString::number(i) + ".txt");
-        QFile file(path);
+        QSaveFile file(path);
         if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
             file.write(m_buffers[i].toUtf8());
+            if(file.commit()){
+                QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+            }
         }
     }
 }
@@ -72,22 +80,28 @@ void QuickNote::RunBufferInTerminal(int index) const {
 }
 
 void QuickNote::RunStringInTerminal(const QString &text) const {
-    QString filePath = "/tmp/quicknote_run.sh";
+    QString runtimePath = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+    if(runtimePath.isEmpty()){
+        runtimePath = QDir::tempPath();
+    }
 
-    QFile file(filePath);
-    if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
+    QTemporaryFile file(runtimePath + "/quicknote_run_XXXXXX.sh");
+    file.setAutoRemove(false);
+
+    if(file.open()){
         QTextStream out(&file);
         out << text;
+        QString filePath = file.fileName();
         file.close();
 
-        file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+        QFile::setPermissions(filePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
 
         QString cmd;
         if(text.startsWith("#!")){
-            cmd = filePath + "; exec bash";
+            cmd = filePath + "; rm -f " + filePath + "; exec bash";
         }
         else {
-            cmd = "source ~/.bashrc 2>/dev/null; source " + filePath + "; exec bash";
+            cmd = "source ~/.bashrc 2>/dev/null; source " + filePath + "; rm -f " + filePath + "; exec bash";
         }
 
         QProcess::startDetached(
@@ -103,11 +117,13 @@ void QuickNote::SaveBufferToFile(int index, const QString &path) const {
         if(cleanPath.startsWith("~/")){
             cleanPath.replace(0, 2, QDir::homePath() + "/");
         }
-        QFile file(cleanPath);
+        QSaveFile file(cleanPath);
         if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
             QTextStream out(&file);
             out << m_buffers[index];
-            file.close();
+            if(file.commit()){
+                QFile::setPermissions(cleanPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+            }
         }
     }
 }

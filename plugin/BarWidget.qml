@@ -535,12 +535,6 @@ BarWidget{
             }
         }
 
-        Shortcut {
-            sequence: "Ctrl+U"
-            onActivated: {
-                QuickNote.RunStringInTerminal("repo_dir=$(cat ~/.config/omarchy/plugins/my.quicknote/.repo_path 2>/dev/null); if [ -n \"$repo_dir\" ] && [ -d \"$repo_dir\" ]; then cd \"$repo_dir\" && ./update.sh; else echo 'Error: Could not find repo path!'; fi")
-            }
-        }
     }
 } 
 }

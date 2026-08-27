@@ -30,7 +30,6 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 | `Ctrl+T` | Run selected text (or entire buffer) in terminal |
 | `Ctrl+R` | Clear the entire buffer |
 | `Ctrl+S` | Open the "Save as:" prompt |
-| `Ctrl+U` | Update plugin |
 | `Ctrl+H` | Show the shortcut help overlay |
 | `Ctrl++` / `Ctrl+-` | Increase / Decrease editor font size |
 | `Escape` | Close the panel or hide the active overlay |
@@ -50,9 +49,9 @@ cd ~/.local/share/quick-note
 
 ```bash
 cd ~/.local/share/quick-note
-./update.sh
+git pull
+./install.sh
 ```
-*(You can also press `Ctrl+U` while inside the QuickNote panel to trigger this automatically!)*
 
 ## Uninstallation
 
@@ -61,6 +60,4 @@ cd ~/.local/share/quick-note
 ./uninstall.sh
 cd ~
 rm -rf ~/.local/share/quick-note
-
 ```
-Thanks.
