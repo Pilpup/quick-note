@@ -8,7 +8,7 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 
 ## Preview
 
-![QuickNote Preview](assets/preview.png)
+![QuickNote Preview](preview.png)
 
 ## Features
 
