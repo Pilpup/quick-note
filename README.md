@@ -39,7 +39,7 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-username/quick-note ~/.local/share/quick-note
+git clone https://github.com/Pilpup/quick-note ~/.local/share/quick-note
 cd ~/.local/share/quick-note
 
 # 2. Compile and install
