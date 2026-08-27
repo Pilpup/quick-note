@@ -3,7 +3,7 @@ import QtQuick.Controls
 
 import qs.Commons
 import qs.Ui
-import My.QuickNote 0.1
+import My.QuickNote 1.0
 
 import Quickshell
 import Quickshell.Wayland
@@ -15,7 +15,7 @@ BarWidget{
     implicitHeight: barSize
 
     property var activeStickyNote: ({})
-    property int sharedFontSize: Style.font.body
+    property int sharedFontSize: Style.font.body + 6
     property var tabColors: ["#FF003C", "#00FF66", "#0088FF", "#FFDD00", "#D900FF", "#FF6600", "#00FFFF"]
 
     function close(){
@@ -32,6 +32,26 @@ BarWidget{
         onPressed: function(b){
             if(b === Qt.LeftButton){
                 popup.open = !popup.open
+            }
+            else if(b === Qt.RightButton){
+                let nextEmptyIdx = -1
+                for(let i = 0; i < QuickNote.MaxBuffers; i++){
+                    if(QuickNote.GetBufferTextAt(i).trim() === "" && !root.activeStickyNote[i]){
+                        nextEmptyIdx = i
+                        break
+                    }
+                }
+                if(nextEmptyIdx === -1){
+                    for(let i = 0; i < QuickNote.MaxBuffers; i++){
+                        if(!root.activeStickyNote[i]){
+                            nextEmptyIdx = i
+                            break
+                        }
+                    }
+                }
+                if(nextEmptyIdx !== -1 && !root.activeStickyNote[nextEmptyIdx]){
+                    root.activeStickyNote[nextEmptyIdx] = stickyFactory.createObject(root, { "bufferIndex": nextEmptyIdx })
+                }
             }
         }
 
@@ -130,19 +150,32 @@ BarWidget{
     Component{
         id: noteEditor
 
-        ScrollView{
-            clip: true
-            property real noteHeight: noteInput.implicitHeight
+        Item {
+            property real noteHeight: noteInput.implicitHeight + (saveOverlay.visible ? saveOverlay.height : 0)
             property int tabIndex: QuickNote.BufferIndex
             property bool isSticky: false
-            property int localFontSize: Style.font.body
+            property int localFontSize: Style.font.body + 6
             property bool isPanelOpen: root.opened
 
+            onTabIndexChanged: {
+                if(noteInput) noteInput.text = QuickNote.GetBufferTextAt(tabIndex)
+            }
+
             onIsPanelOpenChanged: {
+                if (!isPanelOpen) {
+                    saveOverlay.visible = false
+                }
                 if (isPanelOpen && !isSticky) {
                     noteInput.text = QuickNote.GetBufferTextAt(tabIndex)
                 }
             }
+
+            ScrollView{
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: saveOverlay.visible ? saveOverlay.top : parent.bottom
+                clip: true
 
             TextArea{
                 id: noteInput
@@ -169,17 +202,37 @@ BarWidget{
                         let txt = noteInput.text
                         let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
                         let lineEnd = txt.indexOf('\n', pos)
+
                         if(lineEnd === -1){
                             lineEnd = txt.length
                         }
+
                         let line = txt.substring(lineStart, lineEnd)
                         let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
+
                         if(match){
                             let boxStart = lineStart + match[1].length
                             let boxEnd = boxStart + 3
                             if(pos >= boxStart && pos <= boxEnd){
                                 return Qt.PointingHandCursor
                             }
+                        }
+
+                        let wordStart = Math.max(txt.lastIndexOf(' ', pos - 1), txt.lastIndexOf('\n', pos - 1)) + 1
+                        let wordEnd = txt.indexOf(' ', pos)
+                        let nlEnd = txt.indexOf('\n', pos)
+
+                        if(wordEnd === -1){
+                            wordEnd = txt.length
+                        }
+
+                        if(nlEnd !== -1 && nlEnd < wordEnd){
+                            wordEnd = nlEnd
+                        }
+
+                        let word = txt.substring(wordStart, wordEnd).trim()
+                        if(word.match(/^https?:\/\//)){
+                            return Qt.PointingHandCursor
                         }
                         return Qt.IBeamCursor
                     }
@@ -191,11 +244,14 @@ BarWidget{
                         let txt = noteInput.text
                         let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
                         let lineEnd = txt.indexOf('\n', pos)
+
                         if(lineEnd === -1){
                             lineEnd = txt.length
                         }
+
                         let line = txt.substring(lineStart, lineEnd)
                         let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
+
                         if(match){
                             let boxStart = lineStart + match[1].length
                             let boxEnd = boxStart + 3
@@ -204,7 +260,25 @@ BarWidget{
                                 let newText = txt.substring(0, boxStart + 1) + newChar + txt.substring(boxStart + 2)
                                 noteInput.text = newText
                                 noteInput.cursorPosition = pos
+                                return
                             }
+                        }
+
+                        let wordStart = Math.max(txt.lastIndexOf(' ', pos - 1), txt.lastIndexOf('\n', pos - 1)) + 1
+                        let wordEnd = txt.indexOf(' ', pos)
+                        let nlEnd = txt.indexOf('\n', pos)
+
+                        if(wordEnd === -1){
+                            wordEnd = txt.length
+                        }
+
+                        if(nlEnd !== -1 && nlEnd < wordEnd){
+                            wordEnd = nlEnd
+                        }
+
+                        let word = txt.substring(wordStart, wordEnd).trim()
+                        if(word.match(/^https?:\/\//)){
+                            Qt.openUrlExternally(word)
                         }
                     }
                 }
@@ -218,7 +292,7 @@ BarWidget{
                 }
 
                 onActiveFocusChanged: {
-                    if(activeFocus && !isSticky){
+                    if(activeFocus){
                         let currentText = QuickNote.GetBufferTextAt(tabIndex)
                         if(noteInput.text !== currentText){
                             noteInput.text = currentText
@@ -243,6 +317,10 @@ BarWidget{
                             noteInput.insert(noteInput.cursorPosition, path)
                             drop.accept()
                         }
+                        else if(drop.hasText){
+                            noteInput.insert(noteInput.cursorPosition, drop.text)
+                            drop.accept()
+                        }
                     }
                 }
 
@@ -264,9 +342,6 @@ BarWidget{
                     sequence: "Ctrl+B"
                     onActivated: {
                         QuickNote.NextBuffer()
-                        if(!isSticky){
-                            noteInput.text = QuickNote.GetBufferTextAt(QuickNote.BufferIndex)
-                        }
                     }
                 }
                 Shortcut {
@@ -319,6 +394,16 @@ BarWidget{
                 Shortcut {
                     sequence: "Escape"
                     onActivated: {
+                        if(helpOverlay.visible){
+                            helpOverlay.visible = false
+                            noteInput.forceActiveFocus()
+                            return
+                        }
+                        if(saveOverlay.visible){
+                            saveOverlay.visible = false
+                            noteInput.forceActiveFocus()
+                            return
+                        }
                         if(isSticky){
                             if(root.activeStickyNote[tabIndex]){
                                 root.activeStickyNote[tabIndex].destroy()
@@ -329,8 +414,133 @@ BarWidget{
                             root.close()
                         }
                     }
+                }
+            }
+        }
+
+        Rectangle {
+            id: saveOverlay
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: saveRow.implicitHeight + 16
+            color: Color.popups.background
+            visible: false
+
+            Row {
+                id: saveRow
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: 8
+                anchors.rightMargin: 8
+                spacing: 8
+
+                Text {
+                    id: saveLabel
+                    text: "Save as:"
+                    color: Color.popups.text
+                    font.pixelSize: localFontSize
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+
+                TextInput {
+                    id: saveInput
+                    clip: true
+                    color: Color.popups.text
+                    font.pixelSize: localFontSize
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - saveLabel.width - 8
+                    text: "~/"
+                    selectionColor: Color.accent
+                    selectedTextColor: Color.background
+
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: Color.popups.text
+                    }
+
+                    Keys.onPressed: function(event) {
+                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            QuickNote.SaveBufferToFile(tabIndex, saveInput.text)
+                            let oldText = saveInput.text
+                            saveInput.text = "Saved!"
+                            Qt.callLater(function(){
+                                saveOverlay.visible = false
+                                saveInput.text = "~/"
+                                noteInput.forceActiveFocus()
+                            })
+                            event.accepted = true
+                        }
+                    }
+                }
+            }
+        }
+
+        Shortcut {
+            sequence: "Ctrl+S"
+            onActivated: {
+                if(saveOverlay.visible){
+                    saveOverlay.visible = false
+                    noteInput.forceActiveFocus()
+                }
+                else{
+                    saveOverlay.visible = true
+                    saveInput.forceActiveFocus()
+                    saveInput.cursorPosition = saveInput.text.length
+                }
+            }
+        }
+        Rectangle {
+            id: helpOverlay
+            anchors.fill: parent
+            color: Color.popups.background
+            visible: false
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 12
+
+                Text {
+                    text: "QuickNote Shortcuts"
+                    color: Color.accent
+                    font.pixelSize: Style.font.body + 6
+                    font.bold: true
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Text {
+                    text: "Ctrl+P : Pin/Unpin Tab\nCtrl+B : Next Tab\nCtrl+T : Run in Terminal\nCtrl+R : Clear Note\nCtrl+S : Save to File\nCtrl+H : Show Help\nCtrl+U : Update Plugin\nEscape : Close/Hide"
+                    color: Color.popups.text
+                    font.pixelSize: Style.font.body + 4
+                    lineHeight: 1.5
+                    horizontalAlignment: Text.AlignHCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+            }
+        }
+
+        Shortcut {
+            sequence: "Ctrl+H"
+            onActivated: {
+                if(helpOverlay.visible){
+                    helpOverlay.visible = false
+                    noteInput.forceActiveFocus()
+                }
+                else{
+                    helpOverlay.visible = true
+                }
+            }
+        }
+
+        Shortcut {
+            sequence: "Ctrl+U"
+            onActivated: {
+                QuickNote.RunStringInTerminal("repo_dir=$(cat ~/.config/omarchy/plugins/my.quicknote/.repo_path 2>/dev/null); if [ -n \"$repo_dir\" ] && [ -d \"$repo_dir\" ]; then cd \"$repo_dir\" && ./update.sh; else echo 'Error: Could not find repo path!'; fi")
             }
         }
     }
-}
+} 
 }

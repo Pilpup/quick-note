@@ -20,18 +20,11 @@ QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0)
     LoadNote();
 }
 
-QString QuickNote::NoteText() const {return m_buffers[m_currentBufferIndex];}
-
 int QuickNote::BufferIndex() const {return m_currentBufferIndex;}
-
-void QuickNote::SetNoteText(const QString &noteText){
-    SetBufferTextAt(m_currentBufferIndex, noteText);
-}
 
 void QuickNote::NextBuffer(){
     m_currentBufferIndex = (m_currentBufferIndex + 1) % MAX_BUFFERS;
 
-    emit NoteTextChanged();
     emit BufferIndexChanged(m_currentBufferIndex, m_buffers[m_currentBufferIndex]);
 }
 
@@ -74,21 +67,7 @@ void QuickNote::SetBufferTextAt(int index, const QString &newText){
 
 void QuickNote::RunBufferInTerminal(int index) const {
     if(index >= 0 && index < MAX_BUFFERS){
-        QString text = m_buffers[index];
-        QString filePath = "/tmp/quicknote_run.sh";
-
-        QFile file(filePath);
-        if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
-            QTextStream out(&file);
-            out << text;
-            file.close();
-
-            file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
-            QProcess::startDetached(
-                "xdg-terminal-exec", 
-                {"bash", "-c", filePath + "; echo ''; read -p 'Press Enter to close...' -r"}
-            );
-        }
+        RunStringInTerminal(m_buffers[index]);
     }
 }
 
@@ -102,9 +81,33 @@ void QuickNote::RunStringInTerminal(const QString &text) const {
         file.close();
 
         file.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+
+        QString cmd;
+        if(text.startsWith("#!")){
+            cmd = filePath + "; exec bash";
+        }
+        else {
+            cmd = "source ~/.bashrc 2>/dev/null; source " + filePath + "; exec bash";
+        }
+
         QProcess::startDetached(
             "xdg-terminal-exec", 
-            {"bash", "-c", filePath + "; echo ''; read -p 'Press Enter to close...' -r"}
+            {"bash", "-c", cmd}
         );
+    }
+}
+
+void QuickNote::SaveBufferToFile(int index, const QString &path) const {
+    if(index >= 0 && index < MAX_BUFFERS){
+        QString cleanPath = path;
+        if(cleanPath.startsWith("~/")){
+            cleanPath.replace(0, 2, QDir::homePath() + "/");
+        }
+        QFile file(cleanPath);
+        if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
+            QTextStream out(&file);
+            out << m_buffers[index];
+            file.close();
+        }
     }
 }

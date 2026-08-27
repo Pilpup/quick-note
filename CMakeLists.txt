@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(QuickNotePlugin VERSION 0.1 LANGUAGES CXX)
+project(QuickNotePlugin VERSION 1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,7 +10,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Qml Quick)
 qt_add_qml_module(
     quicknote
     URI My.QuickNote
-    VERSION 0.1
+    VERSION 1.0
     QML_FILES
     SOURCES src/quicknote.h src/quicknote.cpp
 )
