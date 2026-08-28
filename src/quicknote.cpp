@@ -1,18 +1,174 @@
 #include "quicknote.h"
 #include <QFile>
-#include <QSaveFile>
 #include <QTemporaryFile>
 #include <QStandardPaths>
 #include <QDir>
 #include <QProcess>
+#include <QFileInfo>
 
-QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0){
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cerrno>
+
+static int openSafeDir(const QByteArray &path){
+    ::mkdir(path.constData(), 0700);
+
+    int fd = ::open(path.constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if(fd < 0) return -1;
+
+    struct stat st;
+    if(::fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != ::getuid()){
+        ::close(fd);
+        return -1;
+    }
+
+    if((st.st_mode & 07777) != 0700){
+        if(::fchmod(fd, 0700) != 0){
+            ::close(fd);
+            return -1;
+        }
+    }
+
+    return fd;
+}
+
+static bool secureSave(int dirFd, const QByteArray &filename, const QByteArray &data){
+    QByteArray tmp = "." + filename + ".tmp";
+
+    ::unlinkat(dirFd, tmp.constData(), 0);
+
+    int fd = ::openat(dirFd, tmp.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if(fd < 0) return false;
+
+    const char *p = data.constData();
+    qint64 left = data.size();
+    while(left > 0){
+        ssize_t n = ::write(fd, p, static_cast<size_t>(left));
+        if(n < 0){
+            if(errno == EINTR) continue;
+            ::close(fd);
+            ::unlinkat(dirFd, tmp.constData(), 0);
+            return false;
+        }
+        p += n;
+        left -= n;
+    }
+
+    if(::fsync(fd) != 0){
+        ::close(fd);
+        ::unlinkat(dirFd, tmp.constData(), 0);
+        return false;
+    }
+    ::close(fd);
+
+    if(::renameat(dirFd, tmp.constData(), dirFd, filename.constData()) != 0){
+        ::unlinkat(dirFd, tmp.constData(), 0);
+        return false;
+    }
+
+    struct stat st;
+    if(::fstatat(dirFd, filename.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0 ||
+       !S_ISREG(st.st_mode) || st.st_uid != ::getuid() || (st.st_mode & 07777) != 0600){
+        ::unlinkat(dirFd, filename.constData(), 0);
+        return false;
+    }
+
+    return true;
+}
+
+static QByteArray secureRead(int dirFd, const QByteArray &filename){
+    int fd = ::openat(dirFd, filename.constData(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if(fd < 0) return {};
+
+    struct stat st;
+    if(::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != ::getuid()){
+        ::close(fd);
+        return {};
+    }
+
+    QByteArray buf(static_cast<int>(st.st_size), Qt::Uninitialized);
+    char *p = buf.data();
+    qint64 left = st.st_size;
+    while(left > 0){
+        ssize_t n = ::read(fd, p, static_cast<size_t>(left));
+        if(n < 0){
+            if(errno == EINTR) continue;
+            ::close(fd);
+            return {};
+        }
+        if(n == 0) break;
+        p += n;
+        left -= n;
+    }
+    ::close(fd);
+    buf.truncate(static_cast<int>(st.st_size - left));
+    return buf;
+}
+
+static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
+    QFileInfo fi(filePath);
+    QByteArray parentPath = fi.absolutePath().toUtf8();
+    QByteArray fileName = fi.fileName().toUtf8();
+    QByteArray tmp = "." + fileName + ".tmp";
+
+    int parentFd = ::open(parentPath.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if(parentFd < 0) return false;
+
+    ::unlinkat(parentFd, tmp.constData(), 0);
+
+    int fd = ::openat(parentFd, tmp.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if(fd < 0){
+        ::close(parentFd);
+        return false;
+    }
+
+    const char *p = data.constData();
+    qint64 left = data.size();
+    while(left > 0){
+        ssize_t n = ::write(fd, p, static_cast<size_t>(left));
+        if(n < 0){
+            if(errno == EINTR) continue;
+            ::close(fd);
+            ::unlinkat(parentFd, tmp.constData(), 0);
+            ::close(parentFd);
+            return false;
+        }
+        p += n;
+        left -= n;
+    }
+
+    if(::fsync(fd) != 0){
+        ::close(fd);
+        ::unlinkat(parentFd, tmp.constData(), 0);
+        ::close(parentFd);
+        return false;
+    }
+    ::close(fd);
+
+    if(::renameat(parentFd, tmp.constData(), parentFd, fileName.constData()) != 0){
+        ::unlinkat(parentFd, tmp.constData(), 0);
+        ::close(parentFd);
+        return false;
+    }
+
+    struct stat st;
+    if(::fstatat(parentFd, fileName.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0 ||
+       !S_ISREG(st.st_mode) || st.st_uid != ::getuid() || (st.st_mode & 07777) != 0600){
+        ::unlinkat(parentFd, fileName.constData(), 0);
+        ::close(parentFd);
+        return false;
+    }
+
+    ::close(parentFd);
+    return true;
+}
+
+QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0), m_dirFd(-1){
     QString stateLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir dir(stateLocation);
-    dir.mkpath("quicknote");
-    m_directoryPath = dir.absoluteFilePath("quicknote");
-    
-    QFile::setPermissions(m_directoryPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    QDir().mkpath(stateLocation);
+
+    m_dirFd = openSafeDir((stateLocation + "/quicknote").toUtf8());
 
     for(int i = 0; i < MAX_BUFFERS; i++){
         m_buffers.append("");
@@ -25,6 +181,10 @@ QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0)
     LoadNote();
 }
 
+QuickNote::~QuickNote(){
+    if(m_dirFd >= 0) ::close(m_dirFd);
+}
+
 int QuickNote::BufferIndex() const {return m_currentBufferIndex;}
 
 void QuickNote::NextBuffer(){
@@ -34,26 +194,23 @@ void QuickNote::NextBuffer(){
 }
 
 void QuickNote::LoadNote(){
+    if(m_dirFd < 0) return;
+
     for(int i = 0; i < MAX_BUFFERS; i++){
-        QString path = m_directoryPath + QString("/note_%1.txt").arg(i);
-        QFile file(path);
-        if(file.open(QIODevice::ReadOnly | QIODevice::Text)){
-            m_buffers[i] = QString::fromUtf8(file.readAll());
+        QByteArray filename = QString("note_%1.txt").arg(i).toUtf8();
+        QByteArray data = secureRead(m_dirFd, filename);
+        if(!data.isEmpty()){
+            m_buffers[i] = QString::fromUtf8(data);
         }
     }
 }
 
 void QuickNote::SaveNote(){
-    QDir dir(m_directoryPath);
+    if(m_dirFd < 0) return;
+
     for(int i = 0; i < MAX_BUFFERS; i++){
-        QString path = dir.filePath("note_" + QString::number(i) + ".txt");
-        QSaveFile file(path);
-        if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
-            file.write(m_buffers[i].toUtf8());
-            if(file.commit()){
-                QFile::setPermissions(path, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-            }
-        }
+        QByteArray filename = QString("note_%1.txt").arg(i).toUtf8();
+        secureSave(m_dirFd, filename, m_buffers[i].toUtf8());
     }
 }
 
@@ -89,12 +246,12 @@ void QuickNote::RunStringInTerminal(const QString &text) const {
     file.setAutoRemove(false);
 
     if(file.open()){
+        ::fchmod(file.handle(), 0700);
+
         QTextStream out(&file);
         out << text;
         QString filePath = file.fileName();
         file.close();
-
-        QFile::setPermissions(filePath, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
 
         QString cmd;
         if(text.startsWith("#!")){
@@ -112,18 +269,12 @@ void QuickNote::RunStringInTerminal(const QString &text) const {
 }
 
 void QuickNote::SaveBufferToFile(int index, const QString &path) const {
-    if(index >= 0 && index < MAX_BUFFERS){
-        QString cleanPath = path;
-        if(cleanPath.startsWith("~/")){
-            cleanPath.replace(0, 2, QDir::homePath() + "/");
-        }
-        QSaveFile file(cleanPath);
-        if(file.open(QIODevice::WriteOnly | QIODevice::Text)){
-            QTextStream out(&file);
-            out << m_buffers[index];
-            if(file.commit()){
-                QFile::setPermissions(cleanPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner);
-            }
-        }
+    if(index < 0 || index >= MAX_BUFFERS) return;
+
+    QString cleanPath = path;
+    if(cleanPath.startsWith("~/")){
+        cleanPath.replace(0, 2, QDir::homePath() + "/");
     }
+
+    secureSaveToPath(cleanPath, m_buffers[index].toUtf8());
 }

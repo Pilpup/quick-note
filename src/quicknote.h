@@ -17,6 +17,7 @@ class QuickNote : public QObject {
 
 public:
     explicit QuickNote(QObject* parent = nullptr);
+    ~QuickNote();
 
     int BufferIndex() const;
     int MaxBuffers() const { return MAX_BUFFERS; }
@@ -41,7 +42,7 @@ private:
 
     int m_currentBufferIndex;
     QList<QString> m_buffers;
-    QString m_directoryPath;
+    int m_dirFd;
     QTimer m_saveTimer;
 
     void LoadNote();
