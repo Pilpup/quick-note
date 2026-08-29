@@ -5,41 +5,95 @@
 #include <QDir>
 #include <QProcess>
 #include <QFileInfo>
+#include <QRandomGenerator>
 
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <cerrno>
 
-static int openSafeDir(const QByteArray &path){
-    ::mkdir(path.constData(), 0700);
-
-    int fd = ::open(path.constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if(fd < 0) return -1;
-
-    struct stat st;
-    if(::fstat(fd, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != ::getuid()){
-        ::close(fd);
-        return -1;
+static int openWalkDir(const QByteArray &path) {
+    if (path.isEmpty() || path[0] != '/') return -1;
+    
+    QList<QByteArray> parts = path.split('/');
+    int currentFd = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (currentFd < 0) return -1;
+    
+    for (int i = 1; i < parts.size(); ++i) {
+        if (parts[i].isEmpty()) continue;
+        int nextFd = ::openat(currentFd, parts[i].constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (nextFd < 0) {
+            ::close(currentFd);
+            return -1;
+        }
+        ::close(currentFd);
+        currentFd = nextFd;
     }
+    return currentFd;
+}
 
-    if((st.st_mode & 07777) != 0700){
-        if(::fchmod(fd, 0700) != 0){
-            ::close(fd);
+static int openSafeDir(const QByteArray &path) {
+    if (path.isEmpty() || path[0] != '/') return -1;
+    
+    QList<QByteArray> parts = path.split('/');
+    int currentFd = ::open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (currentFd < 0) return -1;
+    
+    for (int i = 1; i < parts.size(); ++i) {
+        if (parts[i].isEmpty()) continue;
+        
+        int nextFd = ::openat(currentFd, parts[i].constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (nextFd < 0) {
+            if (errno == ENOENT) {
+                if (::mkdirat(currentFd, parts[i].constData(), 0700) != 0 && errno != EEXIST) {
+                    ::close(currentFd);
+                    return -1;
+                }
+                nextFd = ::openat(currentFd, parts[i].constData(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            }
+            if (nextFd < 0) {
+                ::close(currentFd);
+                return -1;
+            }
+        }
+        ::close(currentFd);
+        currentFd = nextFd;
+        
+        struct stat st;
+        if(::fstat(currentFd, &st) != 0 || !S_ISDIR(st.st_mode)){
+            ::close(currentFd);
             return -1;
         }
     }
-
-    return fd;
+    
+    struct stat st;
+    if(::fstat(currentFd, &st) != 0 || st.st_uid != ::getuid()){
+        ::close(currentFd);
+        return -1;
+    }
+    
+    if((st.st_mode & 07777) != 0700){
+        if(::fchmod(currentFd, 0700) != 0){
+            ::close(currentFd);
+            return -1;
+        }
+    }
+    
+    return currentFd;
 }
 
 static bool secureSave(int dirFd, const QByteArray &filename, const QByteArray &data){
-    QByteArray tmp = "." + filename + ".tmp";
-
-    ::unlinkat(dirFd, tmp.constData(), 0);
+    QByteArray tmp = "." + filename + "." + QByteArray::number(QRandomGenerator::global()->generate(), 16) + ".tmp";
 
     int fd = ::openat(dirFd, tmp.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
     if(fd < 0) return false;
+
+    struct stat st_before;
+    if(::fstat(fd, &st_before) != 0){
+        ::close(fd);
+        ::unlinkat(dirFd, tmp.constData(), 0);
+        return false;
+    }
 
     const char *p = data.constData();
     qint64 left = data.size();
@@ -67,9 +121,10 @@ static bool secureSave(int dirFd, const QByteArray &filename, const QByteArray &
         return false;
     }
 
-    struct stat st;
-    if(::fstatat(dirFd, filename.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0 ||
-       !S_ISREG(st.st_mode) || st.st_uid != ::getuid() || (st.st_mode & 07777) != 0600){
+    struct stat st_after;
+    if(::fstatat(dirFd, filename.constData(), &st_after, AT_SYMLINK_NOFOLLOW) != 0 ||
+       st_before.st_ino != st_after.st_ino || st_before.st_dev != st_after.st_dev ||
+       !S_ISREG(st_after.st_mode) || st_after.st_uid != ::getuid() || (st_after.st_mode & 07777) != 0600){
         ::unlinkat(dirFd, filename.constData(), 0);
         return false;
     }
@@ -83,6 +138,11 @@ static QByteArray secureRead(int dirFd, const QByteArray &filename){
 
     struct stat st;
     if(::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_uid != ::getuid()){
+        ::close(fd);
+        return {};
+    }
+
+    if(st.st_size > 10 * 1024 * 1024) { 
         ::close(fd);
         return {};
     }
@@ -110,15 +170,21 @@ static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
     QFileInfo fi(filePath);
     QByteArray parentPath = fi.absolutePath().toUtf8();
     QByteArray fileName = fi.fileName().toUtf8();
-    QByteArray tmp = "." + fileName + ".tmp";
+    QByteArray tmp = "." + fileName + "." + QByteArray::number(QRandomGenerator::global()->generate(), 16) + ".tmp";
 
-    int parentFd = ::open(parentPath.constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    int parentFd = openWalkDir(parentPath);
     if(parentFd < 0) return false;
-
-    ::unlinkat(parentFd, tmp.constData(), 0);
 
     int fd = ::openat(parentFd, tmp.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
     if(fd < 0){
+        ::close(parentFd);
+        return false;
+    }
+
+    struct stat st_before;
+    if(::fstat(fd, &st_before) != 0){
+        ::close(fd);
+        ::unlinkat(parentFd, tmp.constData(), 0);
         ::close(parentFd);
         return false;
     }
@@ -152,9 +218,10 @@ static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
         return false;
     }
 
-    struct stat st;
-    if(::fstatat(parentFd, fileName.constData(), &st, AT_SYMLINK_NOFOLLOW) != 0 ||
-       !S_ISREG(st.st_mode) || st.st_uid != ::getuid() || (st.st_mode & 07777) != 0600){
+    struct stat st_after;
+    if(::fstatat(parentFd, fileName.constData(), &st_after, AT_SYMLINK_NOFOLLOW) != 0 ||
+       st_before.st_ino != st_after.st_ino || st_before.st_dev != st_after.st_dev ||
+       !S_ISREG(st_after.st_mode) || st_after.st_uid != ::getuid()){
         ::unlinkat(parentFd, fileName.constData(), 0);
         ::close(parentFd);
         return false;
@@ -166,7 +233,6 @@ static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
 
 QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0), m_dirFd(-1){
     QString stateLocation = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(stateLocation);
 
     m_dirFd = openSafeDir((stateLocation + "/quicknote").toUtf8());
 
@@ -239,33 +305,52 @@ void QuickNote::RunBufferInTerminal(int index) const {
 void QuickNote::RunStringInTerminal(const QString &text) const {
     QString runtimePath = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if(runtimePath.isEmpty()){
-        runtimePath = QDir::tempPath();
+        runtimePath = QDir::tempPath() + "/quicknote_" + QString::number(::getuid());
+    } else {
+        runtimePath += "/quicknote_run";
     }
 
-    QTemporaryFile file(runtimePath + "/quicknote_run_XXXXXX.sh");
-    file.setAutoRemove(false);
+    int runDirFd = openSafeDir(runtimePath.toUtf8());
+    if (runDirFd < 0) return;
 
-    if(file.open()){
-        ::fchmod(file.handle(), 0700);
-
-        QTextStream out(&file);
-        out << text;
-        QString filePath = file.fileName();
-        file.close();
-
-        QString cmd;
-        if(text.startsWith("#!")){
-            cmd = filePath + "; rm -f " + filePath + "; exec bash";
-        }
-        else {
-            cmd = "source ~/.bashrc 2>/dev/null; source " + filePath + "; rm -f " + filePath + "; exec bash";
-        }
-
-        QProcess::startDetached(
-            "xdg-terminal-exec", 
-            {"bash", "-c", cmd}
-        );
+    QByteArray scriptName = QByteArray("run_") + QByteArray::number(QRandomGenerator::global()->generate(), 16) + ".sh";
+    int fd = ::openat(runDirFd, scriptName.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0700);
+    if (fd < 0) {
+        ::close(runDirFd);
+        return;
     }
+
+    QByteArray data = text.toUtf8();
+    const char *p = data.constData();
+    qint64 left = data.size();
+    while(left > 0){
+        ssize_t n = ::write(fd, p, static_cast<size_t>(left));
+        if(n < 0){
+            if(errno == EINTR) continue;
+            break;
+        }
+        p += n;
+        left -= n;
+    }
+
+    ::fsync(fd);
+    ::close(fd);
+    ::close(runDirFd);
+
+    QString fullPath = runtimePath + "/" + scriptName;
+
+    QString cmd;
+    if(text.startsWith("#!")){
+        cmd = "\"$1\"; rm -f \"$1\"; exec bash";
+    }
+    else {
+        cmd = "source ~/.bashrc 2>/dev/null; source \"$1\"; rm -f \"$1\"; exec bash";
+    }
+
+    QProcess::startDetached(
+        "xdg-terminal-exec", 
+        {"bash", "-c", cmd, "bash", fullPath}
+    );
 }
 
 void QuickNote::SaveBufferToFile(int index, const QString &path) const {

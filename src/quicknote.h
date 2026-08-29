@@ -2,6 +2,7 @@
 #define QUICKNOTE_H
 
 #include <QObject>
+#include <QRandomGenerator>
 #include <QString>
 #include <QProcess>
 #include <QList>

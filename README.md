@@ -41,7 +41,10 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 git clone https://github.com/Pilpup/quick-note ~/.local/share/quick-note
 cd ~/.local/share/quick-note
 
-# 2. Compile and install
+# 2. Checkout the latest reviewed release (Replace <COMMIT_SHA> with the exact 40-character SHA from the marketplace)
+git checkout <COMMIT_SHA>
+
+# 3. Compile and install
 ./install.sh
 ```
 
@@ -49,7 +52,9 @@ cd ~/.local/share/quick-note
 
 ```bash
 cd ~/.local/share/quick-note
-git pull
+git fetch
+# Checkout the newly reviewed release (Replace <COMMIT_SHA> with the exact 40-character SHA)
+git checkout <COMMIT_SHA>
 ./install.sh
 ```
 
