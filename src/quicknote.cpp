@@ -114,9 +114,9 @@ static bool secureSave(int dirFd, const QByteArray &filename, const QByteArray &
         ::unlinkat(dirFd, tmp.constData(), 0);
         return false;
     }
-    ::close(fd);
 
     if(::renameat(dirFd, tmp.constData(), dirFd, filename.constData()) != 0){
+        ::close(fd);
         ::unlinkat(dirFd, tmp.constData(), 0);
         return false;
     }
@@ -125,10 +125,12 @@ static bool secureSave(int dirFd, const QByteArray &filename, const QByteArray &
     if(::fstatat(dirFd, filename.constData(), &st_after, AT_SYMLINK_NOFOLLOW) != 0 ||
        st_before.st_ino != st_after.st_ino || st_before.st_dev != st_after.st_dev ||
        !S_ISREG(st_after.st_mode) || st_after.st_uid != ::getuid() || (st_after.st_mode & 07777) != 0600){
+        ::close(fd);
         ::unlinkat(dirFd, filename.constData(), 0);
         return false;
     }
 
+    ::close(fd);
     return true;
 }
 
@@ -210,9 +212,9 @@ static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
         ::close(parentFd);
         return false;
     }
-    ::close(fd);
 
     if(::renameat(parentFd, tmp.constData(), parentFd, fileName.constData()) != 0){
+        ::close(fd);
         ::unlinkat(parentFd, tmp.constData(), 0);
         ::close(parentFd);
         return false;
@@ -222,11 +224,13 @@ static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
     if(::fstatat(parentFd, fileName.constData(), &st_after, AT_SYMLINK_NOFOLLOW) != 0 ||
        st_before.st_ino != st_after.st_ino || st_before.st_dev != st_after.st_dev ||
        !S_ISREG(st_after.st_mode) || st_after.st_uid != ::getuid()){
+        ::close(fd);
         ::unlinkat(parentFd, fileName.constData(), 0);
         ::close(parentFd);
         return false;
     }
 
+    ::close(fd);
     ::close(parentFd);
     return true;
 }
@@ -327,15 +331,39 @@ void QuickNote::RunStringInTerminal(const QString &text) const {
         ssize_t n = ::write(fd, p, static_cast<size_t>(left));
         if(n < 0){
             if(errno == EINTR) continue;
-            break;
+            ::close(fd);
+            ::unlinkat(runDirFd, scriptName.constData(), 0);
+            ::close(runDirFd);
+            return;
         }
         p += n;
         left -= n;
     }
 
-    ::fsync(fd);
-    ::close(fd);
-    ::close(runDirFd);
+    if(::fsync(fd) != 0){
+        ::close(fd);
+        ::unlinkat(runDirFd, scriptName.constData(), 0);
+        ::close(runDirFd);
+        return;
+    }
+
+    struct stat st_before;
+    if(::fstat(fd, &st_before) != 0){
+        ::close(fd);
+        ::unlinkat(runDirFd, scriptName.constData(), 0);
+        ::close(runDirFd);
+        return;
+    }
+
+    struct stat st_after;
+    if(::fstatat(runDirFd, scriptName.constData(), &st_after, AT_SYMLINK_NOFOLLOW) != 0 ||
+       st_before.st_ino != st_after.st_ino || st_before.st_dev != st_after.st_dev ||
+       !S_ISREG(st_after.st_mode) || st_after.st_uid != ::getuid() || (st_after.st_mode & 07777) != 0700){
+        ::close(fd);
+        ::unlinkat(runDirFd, scriptName.constData(), 0);
+        ::close(runDirFd);
+        return;
+    }
 
     QString fullPath = runtimePath + "/" + scriptName;
 
@@ -351,6 +379,9 @@ void QuickNote::RunStringInTerminal(const QString &text) const {
         "xdg-terminal-exec", 
         {"bash", "-c", cmd, "bash", fullPath}
     );
+
+    ::close(fd);
+    ::close(runDirFd);
 }
 
 void QuickNote::SaveBufferToFile(int index, const QString &path) const {
