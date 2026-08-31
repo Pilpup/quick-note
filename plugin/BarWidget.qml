@@ -3,7 +3,7 @@ import QtQuick.Controls
 
 import qs.Commons
 import qs.Ui
-import My.QuickNote 1.0
+import "../My/QuickNote"
 
 import Quickshell
 import Quickshell.Wayland
@@ -56,8 +56,9 @@ BarWidget{
         }
 
         Text{
-            anchors.centerIn: parent 
-            text: "N"
+            anchors.centerIn: parent
+            text: "󰦧"
+            font.family: Style.font.family
             font.pixelSize: Style.font.body
             color: root.bar.foreground
         }

@@ -36,6 +36,7 @@ cp build/qmldir "$LOCAL_PLUGIN_DIR/My/QuickNote/"
 echo "Enabled my.quicknote"
 omarchy-shell shell rescanPlugins
 omarchy plugin enable my.quicknote
+
 omarchy restart shell
 
 echo "Done!"
