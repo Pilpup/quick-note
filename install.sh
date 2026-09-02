@@ -26,11 +26,19 @@ for part in parts:
         os.mkdir(current, 0o700)
 " "$LOCAL_PLUGIN_DIR/My/QuickNote"
 
+rm -f "$LOCAL_PLUGIN_DIR/.repo_path"
 echo "$PWD" > "$LOCAL_PLUGIN_DIR/.repo_path"
+
+rm -rf "$LOCAL_PLUGIN_DIR/plugin"
 cp -r plugin "$LOCAL_PLUGIN_DIR/"
+
+rm -f "$LOCAL_PLUGIN_DIR/manifest.json"
 cp manifest.json "$LOCAL_PLUGIN_DIR/"
+
 rm -f "$LOCAL_PLUGIN_DIR/My/QuickNote/libquicknoteplugin.so"
 cp build/libquicknoteplugin.so "$LOCAL_PLUGIN_DIR/My/QuickNote/"
+
+rm -f "$LOCAL_PLUGIN_DIR/My/QuickNote/qmldir"
 cp build/qmldir "$LOCAL_PLUGIN_DIR/My/QuickNote/"
 
 echo "Enabled my.quicknote"
