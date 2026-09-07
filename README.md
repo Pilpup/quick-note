@@ -19,6 +19,7 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 - **Save to File**: Press `Ctrl+S` to export notes to a specific file.
 - **Drag & Drop**: Easily drop text files or snippets straight into your notes.
 - **Clickable Links**: Click any URL to instantly open it in your browser.
+- **Quick Typing Test**: Press `Ctrl+K` to start a quick typing test on your note.
 
 ### Keyboard Shortcuts
 *(Press `Ctrl+H` at any time while the panel is open to view this)*
