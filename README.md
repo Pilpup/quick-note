@@ -31,17 +31,16 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 | `Ctrl+R` | Clear the entire buffer |
 | `Ctrl+S` | Open the "Save as:" prompt |
 | `Ctrl+H` | Show the shortcut help overlay |
+| `Ctrl+K` | Start typing test |
 | `Ctrl++` / `Ctrl+-` | Increase / Decrease editor font size |
 | `Escape` | Close the panel or hide the active overlay |
 
 ## Installation
 
 ```bash
-# 1. Clone
 git clone https://github.com/Pilpup/quick-note ~/.local/share/quick-note
 cd ~/.local/share/quick-note
 
-# 2. Compile and install
 ./install.sh
 ```
 

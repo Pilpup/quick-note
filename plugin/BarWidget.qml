@@ -17,7 +17,17 @@ BarWidget{
     property var activeStickyNote: ({})
     property int sharedFontSize: Style.font.body + 6
     property var tabColors: ["#FF003C", "#00FF66", "#0088FF", "#FFDD00", "#D900FF", "#FF6600", "#00FFFF"]
+    property int bestWpm: 0
+    
+    property var bufferHasContent: [false, false, false, false, false, false, false]
 
+    Component.onCompleted: {
+        let arr = []
+        for(let i = 0; i < QuickNote.MaxBuffers; i++){
+            arr.push(QuickNote.GetBufferTextAt(i).trim() !== "")
+        }
+        bufferHasContent = arr
+    }
     function close(){
         popup.open = false
     }
@@ -69,7 +79,8 @@ BarWidget{
         anchorItem: root
         bar: root.bar
         owner: root
-        contentWidth : Style.space(300)
+        contentWidth : (editorLoader.item && editorLoader.item.isTypingTestActive) ? Style.space(600) : Style.space(300)
+        Behavior on contentWidth { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
         contentHeight:{
             if(editorLoader.item){
                 return Math.max(Style.space(300), popup.fittedContentHeight(editorLoader.item.noteHeight))
@@ -87,11 +98,23 @@ BarWidget{
 
             Repeater{
                 model: QuickNote.MaxBuffers
-                Rectangle{
-                    width: 8
+                Item {
+                    width: QuickNote.BufferIndex === index ? 16 : 8
                     height: 8
-                    radius: 4
-                    color: QuickNote.BufferIndex === index ? Color.accent : Color.muted
+                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 4
+                        color: {
+                            if (QuickNote.BufferIndex === index) return root.tabColors[index % root.tabColors.length];
+                            if (root.bufferHasContent[index]) return Color.muted;
+                            return "transparent";
+                        }
+                        border.color: Color.muted
+                        border.width: (QuickNote.BufferIndex !== index && !root.bufferHasContent[index]) ? 1 : 0
+                        Behavior on color { ColorAnimation { duration: 200 } }
+                    }
                 }
             }
         }
@@ -117,18 +140,26 @@ BarWidget{
 
             property int dynamicHeight: {
                 if(stickyLoader.item){
-                    return Math.min(800, Math.max(300, stickyLoader.item.noteHeight + 24))
+                    return Math.min(Style.space(800), Math.max(Style.space(300), stickyLoader.item.noteHeight + 24))
                 }
-                return 300
+                return Style.space(300)
             }
 
-            minimumSize: Qt.size(300, dynamicHeight)
-            maximumSize: Qt.size(300, dynamicHeight)
-            width: 300
+            property int dynamicWidth: {
+                if(stickyLoader.item && stickyLoader.item.isTypingTestActive) {
+                    return Style.space(600)
+                }
+                return Style.space(300)
+            }
+
+            minimumSize: Qt.size(dynamicWidth, dynamicHeight)
+            maximumSize: Qt.size(dynamicWidth, dynamicHeight)
+            width: dynamicWidth
             height: dynamicHeight
 
             Rectangle {
                 anchors.fill: parent
+                anchors.margins: 2
                 color: Color.popups.background
                 border.color: root.tabColors[bufferIndex % root.tabColors.length]
                 border.width: 2
@@ -156,7 +187,41 @@ BarWidget{
             property int tabIndex: QuickNote.BufferIndex
             property bool isSticky: false
             property int localFontSize: Style.font.body + 6
-            property bool isPanelOpen: root.opened
+            property bool isPanelOpen: popup.open
+            property bool isTypingTestActive: false
+            
+            function getInteractiveElementAt(pos) {
+                let txt = noteInput.text
+                let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
+                let lineEnd = txt.indexOf('\n', pos)
+
+                if(lineEnd === -1) lineEnd = txt.length
+
+                let line = txt.substring(lineStart, lineEnd)
+                let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
+
+                if(match){
+                    let boxStart = lineStart + match[1].length
+                    let boxEnd = boxStart + 3
+                    if(pos >= boxStart && pos <= boxEnd){
+                        return { type: "checkbox", match: match, start: boxStart }
+                    }
+                }
+
+                let wordStart = Math.max(txt.lastIndexOf(' ', pos - 1), txt.lastIndexOf('\n', pos - 1)) + 1
+                let wordEnd = txt.indexOf(' ', pos)
+                let nlEnd = txt.indexOf('\n', pos)
+
+                if(wordEnd === -1) wordEnd = txt.length
+                if(nlEnd !== -1 && nlEnd < wordEnd) wordEnd = nlEnd
+
+                let word = txt.substring(wordStart, wordEnd).trim()
+                if(word.match(/^https?:\/\//)){
+                    return { type: "link", url: word }
+                }
+
+                return null
+            }
 
             onTabIndexChanged: {
                 if(noteInput) noteInput.text = QuickNote.GetBufferTextAt(tabIndex)
@@ -190,7 +255,7 @@ BarWidget{
                 font.pixelSize: localFontSize
                 color: Color.popups.text
                 selectedTextColor: Color.background
-                selectionColor: Color.accent
+                selectionColor: root.tabColors[tabIndex % root.tabColors.length]
 
                 background: Item {}
 
@@ -199,87 +264,24 @@ BarWidget{
                     hoverEnabled: true
                     acceptedButtons: Qt.NoButton
                     cursorShape: {
-                        let pos = noteInput.positionAt(mouseX, mouseY)
-                        let txt = noteInput.text
-                        let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
-                        let lineEnd = txt.indexOf('\n', pos)
-
-                        if(lineEnd === -1){
-                            lineEnd = txt.length
-                        }
-
-                        let line = txt.substring(lineStart, lineEnd)
-                        let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
-
-                        if(match){
-                            let boxStart = lineStart + match[1].length
-                            let boxEnd = boxStart + 3
-                            if(pos >= boxStart && pos <= boxEnd){
-                                return Qt.PointingHandCursor
-                            }
-                        }
-
-                        let wordStart = Math.max(txt.lastIndexOf(' ', pos - 1), txt.lastIndexOf('\n', pos - 1)) + 1
-                        let wordEnd = txt.indexOf(' ', pos)
-                        let nlEnd = txt.indexOf('\n', pos)
-
-                        if(wordEnd === -1){
-                            wordEnd = txt.length
-                        }
-
-                        if(nlEnd !== -1 && nlEnd < wordEnd){
-                            wordEnd = nlEnd
-                        }
-
-                        let word = txt.substring(wordStart, wordEnd).trim()
-                        if(word.match(/^https?:\/\//)){
-                            return Qt.PointingHandCursor
-                        }
-                        return Qt.IBeamCursor
+                        let el = getInteractiveElementAt(noteInput.positionAt(mouseX, mouseY))
+                        return el ? Qt.PointingHandCursor : Qt.IBeamCursor
                     }
                 }
 
                 TapHandler {
                     onTapped: function(eventPoint){
                         let pos = noteInput.positionAt(eventPoint.position.x, eventPoint.position.y)
-                        let txt = noteInput.text
-                        let lineStart = txt.lastIndexOf('\n', pos - 1) + 1
-                        let lineEnd = txt.indexOf('\n', pos)
-
-                        if(lineEnd === -1){
-                            lineEnd = txt.length
-                        }
-
-                        let line = txt.substring(lineStart, lineEnd)
-                        let match = line.match(/^([\s#-]*?)\[([ xX])\]/)
-
-                        if(match){
-                            let boxStart = lineStart + match[1].length
-                            let boxEnd = boxStart + 3
-                            if(pos >= boxStart && pos <= boxEnd){
-                                let newChar = (match[2] === ' ' ? 'x' : ' ')
-                                let newText = txt.substring(0, boxStart + 1) + newChar + txt.substring(boxStart + 2)
-                                noteInput.text = newText
+                        let el = getInteractiveElementAt(pos)
+                        if (el) {
+                            if (el.type === "checkbox") {
+                                let newChar = (el.match[2] === ' ' ? 'x' : ' ')
+                                let txt = noteInput.text
+                                noteInput.text = txt.substring(0, el.start + 1) + newChar + txt.substring(el.start + 2)
                                 noteInput.cursorPosition = pos
-                                return
+                            } else if (el.type === "link") {
+                                Qt.openUrlExternally(el.url)
                             }
-                        }
-
-                        let wordStart = Math.max(txt.lastIndexOf(' ', pos - 1), txt.lastIndexOf('\n', pos - 1)) + 1
-                        let wordEnd = txt.indexOf(' ', pos)
-                        let nlEnd = txt.indexOf('\n', pos)
-
-                        if(wordEnd === -1){
-                            wordEnd = txt.length
-                        }
-
-                        if(nlEnd !== -1 && nlEnd < wordEnd){
-                            wordEnd = nlEnd
-                        }
-
-                        let word = txt.substring(wordStart, wordEnd).trim()
-                        if(word.match(/^https?:\/\//)){
-                            Qt.openUrlExternally(word)
                         }
                     }
                 }
@@ -302,8 +304,11 @@ BarWidget{
                 }
 
                 onTextChanged: {
-                    if(noteInput.activeFocus){
-                        QuickNote.SetBufferTextAt(tabIndex, text)
+                    QuickNote.SetBufferTextAt(tabIndex, text)
+                    let arr = root.bufferHasContent.slice()
+                    if (arr[tabIndex] !== (text.trim() !== "")) {
+                        arr[tabIndex] = (text.trim() !== "")
+                        root.bufferHasContent = arr
                     }
                 }
 
@@ -326,14 +331,14 @@ BarWidget{
                 }
 
                 Shortcut {
-                    sequence: StandardKey.ZoomIn
+                    sequences: [StandardKey.ZoomIn]
                     onActivated: {
                         localFontSize = Math.min(32, localFontSize + 1)
                         if(!isSticky) root.sharedFontSize = localFontSize
                     }
                 }
                 Shortcut {
-                    sequence: StandardKey.ZoomOut
+                    sequences: [StandardKey.ZoomOut]
                     onActivated: {
                         localFontSize = Math.max(8, localFontSize - 1)
                         if(!isSticky) root.sharedFontSize = localFontSize
@@ -395,6 +400,11 @@ BarWidget{
                 Shortcut {
                     sequence: "Escape"
                     onActivated: {
+                        if(isTypingTestActive){
+                            isTypingTestActive = false
+                            hideTimer.start()
+                            return
+                        }
                         if(helpOverlay.visible){
                             helpOverlay.visible = false
                             noteInput.forceActiveFocus()
@@ -453,7 +463,7 @@ BarWidget{
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width - saveLabel.width - 8
                     text: "~/"
-                    selectionColor: Color.accent
+                    selectionColor: root.tabColors[tabIndex % root.tabColors.length]
                     selectedTextColor: Color.background
 
                     Rectangle {
@@ -513,7 +523,7 @@ BarWidget{
                 }
 
                 Text {
-                    text: "Ctrl+P : Pin/Unpin Tab\nCtrl+B : Next Tab\nCtrl+T : Run in Terminal\nCtrl+R : Clear Note\nCtrl+S : Save to File\nCtrl+H : Show Help\nCtrl+U : Update Plugin\nEscape : Close/Hide"
+                    text: "Ctrl+P : Pin/Unpin Tab\nCtrl+B : Next Tab\nCtrl+T : Run in Terminal\nCtrl+R : Clear Note\nCtrl+S : Save to File\nCtrl+K : Typing Test\nCtrl+H : Show Help\nEscape : Close/Hide"
                     color: Color.popups.text
                     font.pixelSize: Style.font.body + 4
                     lineHeight: 1.5
@@ -535,6 +545,44 @@ BarWidget{
                 }
             }
         }
+
+        Loader {
+            id: typingTestLoader
+            anchors.fill: parent
+            active: true
+            visible: false
+            source: "TypingTestOverlay.qml"
+            
+            Timer {
+                id: hideTimer
+                interval: 150
+                onTriggered: {
+                    typingTestLoader.visible = false
+                    noteInput.forceActiveFocus()
+                }
+            }
+        }
+
+        Shortcut {
+            sequence: "Ctrl+K"
+            onActivated: {
+                if(isTypingTestActive){
+                    isTypingTestActive = false
+                    hideTimer.start()
+                }
+                else{
+                    isTypingTestActive = true
+                    typingTestLoader.visible = true
+                    if (typingTestLoader.item) {
+                        typingTestLoader.item.fontSize = localFontSize
+                        typingTestLoader.item.tabColor = root.tabColors[tabIndex % root.tabColors.length]
+                        typingTestLoader.item.bestWpm = root.bestWpm
+                        typingTestLoader.item.resetTest()
+                    }
+                }
+            }
+        }
+
 
     }
 } 

@@ -241,6 +241,7 @@ QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0)
 
     for(int i = 0; i < MAX_BUFFERS; i++){
         m_buffers.append("");
+        m_dirtyBuffers.append(false);
     }
 
     m_saveTimer.setSingleShot(true);
@@ -278,8 +279,11 @@ void QuickNote::SaveNote(){
     if(m_dirFd < 0) return;
 
     for(int i = 0; i < MAX_BUFFERS; i++){
+        if (!m_dirtyBuffers[i]) continue;
         QByteArray filename = QString("note_%1.txt").arg(i).toUtf8();
-        secureSave(m_dirFd, filename, m_buffers[i].toUtf8());
+        if (secureSave(m_dirFd, filename, m_buffers[i].toUtf8())) {
+            m_dirtyBuffers[i] = false;
+        }
     }
 }
 
@@ -294,6 +298,7 @@ void QuickNote::SetBufferTextAt(int index, const QString &newText){
     if(index >= 0 && index < MAX_BUFFERS){
         if(m_buffers[index] != newText){
             m_buffers[index] = newText;
+            m_dirtyBuffers[index] = true;
             m_saveTimer.start(500);
         }
     }

@@ -43,6 +43,7 @@ private:
 
     int m_currentBufferIndex;
     QList<QString> m_buffers;
+    QList<bool> m_dirtyBuffers;
     int m_dirFd;
     QTimer m_saveTimer;
 
