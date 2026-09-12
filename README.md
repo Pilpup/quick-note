@@ -39,26 +39,29 @@ A lightning-fast, sticky note plugin designed natively for the Omarchy shell.
 ## Installation
 
 ```bash
-git clone https://github.com/Pilpup/quick-note ~/.local/share/quick-note
-cd ~/.local/share/quick-note
-
-./install.sh
+omarchy plugin add https://github.com/Pilpup/quick-note --enable
 ```
 
 ## Update
 
 ```bash
-cd ~/.local/share/quick-note
-git fetch
-
-./install.sh
+omarchy plugin update my.quicknote
 ```
 
 ## Uninstallation
 
 ```bash
-cd ~/.local/share/quick-note
-./uninstall.sh
-cd ~
-rm -rf ~/.local/share/quick-note
+omarchy plugin remove my.quicknote
+```
+
+## Development & Building from Source
+
+If you want to contribute to the code and build it manually from the `main` branch:
+
+```bash
+git clone https://github.com/Pilpup/quick-note
+cd quick-note
+
+# Compile the C++ binaries in-place
+./build.sh
 ```
