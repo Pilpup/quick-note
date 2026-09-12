@@ -11,6 +11,7 @@ qt_add_qml_module(
     quicknote
     URI My.QuickNote
     VERSION 1.0
+    OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/My/QuickNote
     QML_FILES
     SOURCES src/quicknote.h src/quicknote.cpp
 )
