@@ -1,0 +1,8 @@
+module My.QuickNote
+linktarget quicknoteplugin
+optional plugin quicknoteplugin
+classname My_QuickNotePlugin
+typeinfo quicknote.qmltypes
+prefer :/My/QuickNote/
+depends QtQuick
+

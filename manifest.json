@@ -1,0 +1,12 @@
+{
+    "schemaVersion": 1,
+    "id": "my.quicknote",
+    "name": "Quick Notes",
+    "version": "2.0.0",
+    "author": "Pilpup",
+    "description": "A lightning-fast sticky note plugin built in c++.",
+    "kinds": ["bar-widget"],
+    "entryPoints": {
+        "barWidget": "plugin/BarWidget.qml"
+    }
+}
