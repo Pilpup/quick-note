@@ -171,67 +171,14 @@ static bool secureSaveToPath(const QString &filePath, const QByteArray &data){
     QFileInfo fi(filePath);
     QByteArray parentPath = fi.absolutePath().toUtf8();
     QByteArray fileName = fi.fileName().toUtf8();
-    QByteArray tmp = "." + fileName + "." + QByteArray::number(QRandomGenerator::global()->generate(), 16) + ".tmp";
 
     int parentFd = openWalkDir(parentPath);
     if(parentFd < 0) return false;
 
-    int fd = ::openat(parentFd, tmp.constData(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-    if(fd < 0){
-        ::close(parentFd);
-        return false;
-    }
+    bool success = secureSave(parentFd, fileName, data);
 
-    struct stat st_before;
-    if(::fstat(fd, &st_before) != 0){
-        ::close(fd);
-        ::unlinkat(parentFd, tmp.constData(), 0);
-        ::close(parentFd);
-        return false;
-    }
-
-    const char *p = data.constData();
-    qint64 left = data.size();
-    while(left > 0){
-        ssize_t n = ::write(fd, p, static_cast<size_t>(left));
-        if(n < 0){
-            if(errno == EINTR) continue;
-            ::close(fd);
-            ::unlinkat(parentFd, tmp.constData(), 0);
-            ::close(parentFd);
-            return false;
-        }
-        p += n;
-        left -= n;
-    }
-
-    if(::fsync(fd) != 0){
-        ::close(fd);
-        ::unlinkat(parentFd, tmp.constData(), 0);
-        ::close(parentFd);
-        return false;
-    }
-
-    if(::renameat(parentFd, tmp.constData(), parentFd, fileName.constData()) != 0){
-        ::close(fd);
-        ::unlinkat(parentFd, tmp.constData(), 0);
-        ::close(parentFd);
-        return false;
-    }
-
-    struct stat st_after;
-    if(::fstatat(parentFd, fileName.constData(), &st_after, AT_SYMLINK_NOFOLLOW) != 0 ||
-       st_before.st_ino != st_after.st_ino || st_before.st_dev != st_after.st_dev ||
-       !S_ISREG(st_after.st_mode) || st_after.st_uid != ::getuid()){
-        ::close(fd);
-        ::unlinkat(parentFd, fileName.constData(), 0);
-        ::close(parentFd);
-        return false;
-    }
-
-    ::close(fd);
     ::close(parentFd);
-    return true;
+    return success;
 }
 
 QuickNote::QuickNote(QObject* parent) : QObject(parent), m_currentBufferIndex(0), m_dirFd(-1){
@@ -388,13 +335,20 @@ void QuickNote::RunStringInTerminal(const QString &text) const {
     ::close(runDirFd);
 }
 
-void QuickNote::SaveBufferToFile(int index, const QString &path) const {
-    if(index < 0 || index >= MAX_BUFFERS) return;
+bool QuickNote::SaveBufferToFile(int index, const QString &path) {
+    if(index < 0 || index >= MAX_BUFFERS) {
+        setError("Invalid buffer index.");
+        return false;
+    }
 
     QString cleanPath = path;
     if(cleanPath.startsWith("~/")){
         cleanPath.replace(0, 2, QDir::homePath() + "/");
     }
 
-    secureSaveToPath(cleanPath, m_buffers[index].toUtf8());
+    if (!secureSaveToPath(cleanPath, m_buffers[index].toUtf8())) {
+        setError("Failed to save to " + cleanPath);
+        return false;
+    }
+    return true;
 }

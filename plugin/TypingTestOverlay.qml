@@ -34,6 +34,11 @@ Rectangle {
         Qt.callLater(function() { hiddenInput.forceActiveFocus() })
     }
     
+    function escapeHtml(str) {
+        if (!str) return ""
+        return str.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    }
+
     function updateText() {
         let expected = targetWords
         let typed = hiddenInput.text.split(' ')
@@ -47,7 +52,7 @@ Rectangle {
             let typedWord = typed[i]
             
             if (typedWord === undefined) {
-                html += "<font color='" + Color.muted + "'>" + expectedWord + "</font>"
+                html += "<font color='" + Color.muted + "'>" + escapeHtml(expectedWord) + "</font>"
             } else {
                 let maxLen = Math.max(expectedWord.length, typedWord.length)
                 for (let j = 0; j < maxLen; j++) {
@@ -58,17 +63,17 @@ Rectangle {
 
                     if (j < typedWord.length && j < expectedWord.length) {
                         if (typedWord[j] === expectedWord[j]) {
-                            html += "<font color='" + Color.foreground + "'>" + expectedWord[j] + "</font>"
+                            html += "<font color='" + Color.foreground + "'>" + escapeHtml(expectedWord[j]) + "</font>"
                             cChars++
                         } else {
-                            html += "<font color='#FF003C'>" + expectedWord[j] + "</font>"
+                            html += "<font color='#FF003C'>" + escapeHtml(expectedWord[j]) + "</font>"
                         }
                         tChars++
                     } else if (j >= expectedWord.length) {
-                        html += "<font color='#FF003C'><u>" + typedWord[j] + "</u></font>"
+                        html += "<font color='#FF003C'><u>" + escapeHtml(typedWord[j]) + "</u></font>"
                         tChars++
                     } else if (j >= typedWord.length) {
-                        html += "<font color='" + Color.muted + "'>" + expectedWord[j] + "</font>"
+                        html += "<font color='" + Color.muted + "'>" + escapeHtml(expectedWord[j]) + "</font>"
                     }
                     
                     if (i === typed.length - 1 && j === typedWord.length - 1) {
